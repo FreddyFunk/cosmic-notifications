@@ -57,7 +57,7 @@ struct CosmicNotifications {
 
 #[derive(Debug, Clone)]
 enum Message {
-    ActivateNotification(u32),
+    ActivateNotification(u32, Option<ActionId>),
     ActivationToken(Option<String>, u32, Option<ActionId>),
     Dismissed(u32),
     Notification(notifications::Event),
@@ -482,9 +482,9 @@ impl cosmic::Application for CosmicNotifications {
     #[allow(clippy::too_many_lines)]
     fn update(&mut self, message: Message) -> Task<Self::Message> {
         match message {
-            Message::ActivateNotification(id) => {
+            Message::ActivateNotification(id, action) => {
                 tracing::trace!("requesting token for {id}");
-                return self.request_activation(id, None);
+                return self.request_activation(id, action);
             }
             Message::ActivationToken(token, id, action) => {
                 tracing::trace!("token for {id}");
@@ -581,6 +581,29 @@ impl cosmic::Application for CosmicNotifications {
                 )
                 .on_press(Message::Dismissed(n.id))
                 .class(cosmic::theme::Button::Text);
+
+                let mut content_col = column![
+                    text::body(n.summary.lines().next().unwrap_or_default()).width(Length::Fill),
+                    text::caption(n.body.lines().next().unwrap_or_default()).width(Length::Fill)
+                ];
+
+                let action_buttons: Vec<_> = n
+                    .actions
+                    .iter()
+                    .filter(|(action_id, _)| !matches!(action_id, ActionId::Default))
+                    .map(|(action_id, label)| {
+                        button::text(label)
+                            .on_press(Message::ActivateNotification(n.id, Some(action_id.clone())))
+                            .class(cosmic::theme::Button::Suggested)
+                            .into()
+                    })
+                    .collect();
+
+                if !action_buttons.is_empty() {
+                    content_col =
+                        content_col.push(row(action_buttons).spacing(8).padding([8, 0, 0, 0]));
+                }
+
                 let e = Element::from(
                     column!(
                         if let Some(icon) = n.notification_icon() {
@@ -592,12 +615,7 @@ impl cosmic::Application for CosmicNotifications {
                                 .spacing(8)
                                 .align_y(Alignment::Center)
                         },
-                        column![
-                            text::body(n.summary.lines().next().unwrap_or_default())
-                                .width(Length::Fill),
-                            text::caption(n.body.lines().next().unwrap_or_default())
-                                .width(Length::Fill)
-                        ]
+                        content_col
                     )
                     .width(Length::Fill),
                 );
@@ -613,7 +631,7 @@ impl cosmic::Application for CosmicNotifications {
             notif_elems,
             Message::Ignore,
             None::<fn(cosmic_time::chain::Cards, bool) -> Message>,
-            Some(move |id| Message::ActivateNotification(ids[id])),
+            Some(move |id| Message::ActivateNotification(ids[id], None)),
             "",
             "",
             "",
